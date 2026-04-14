@@ -1,34 +1,59 @@
 import { useState, useEffect } from "react";
 import { loadPlayer, clearPlayer } from "./lib/storage";
 import Home from "./screens/Home";
+import Lobby from "./screens/Lobby";
 
 type Session = { playerId: string; gameId: string; code: string };
+type Screen = "home" | "lobby" | "game";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [screen, setScreen] = useState<Screen>("home");
 
-  // Restore session on page refresh
   useEffect(() => {
     const stored = loadPlayer();
-    if (stored) setSession(stored);
+    if (stored) {
+      setSession(stored);
+      setScreen("lobby");
+    }
   }, []);
 
   function handleJoined(data: Session) {
     setSession(data);
+    setScreen("lobby");
   }
 
-  if (!session) {
+  function handleLeft() {
+    clearPlayer();
+    setSession(null);
+    setScreen("home");
+  }
+
+  function handleGameStarted() {
+    setScreen("game");
+  }
+
+  if (screen === "home" || !session) {
     return <Home onJoined={handleJoined} />;
   }
 
-  // Placeholder — replaced in Step 3 with <Lobby />
+  if (screen === "lobby") {
+    return (
+      <Lobby
+        gameId={session.gameId}
+        playerId={session.playerId}
+        code={session.code}
+        onGameStarted={handleGameStarted}
+        onLeft={handleLeft}
+      />
+    );
+  }
+
+  // Placeholder — replaced in Step 4 with <Game />
   return (
     <div style={{ padding: 20 }}>
-      <p>Joined! Code: <strong>{session.code}</strong></p>
-      <p>Player ID: {session.playerId}</p>
-      <button onClick={() => { clearPlayer(); setSession(null); }}>
-        Leave
-      </button>
+      <p>Game started!</p>
+      <button onClick={handleLeft}>Leave</button>
     </div>
   );
 }
