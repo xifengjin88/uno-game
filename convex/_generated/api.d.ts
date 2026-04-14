@@ -8,8 +8,11 @@
  * @module
  */
 
+import type * as games from "../games.js";
 import type * as lib_deck from "../lib/deck.js";
 import type * as lib_rules from "../lib/rules.js";
+import type * as lib_utils from "../lib/utils.js";
+import type * as players from "../players.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +21,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  games: typeof games;
   "lib/deck": typeof lib_deck;
   "lib/rules": typeof lib_rules;
+  "lib/utils": typeof lib_utils;
+  players: typeof players;
 }>;
 
 /**
