@@ -7,6 +7,7 @@ type Props = {
   card: Card;
   onClick?: () => void;
   selected?: boolean;
+  highlighted?: boolean;
   small?: boolean;
   faceDown?: boolean;
 };
@@ -27,7 +28,7 @@ const LABEL: Record<string, string> = {
   wild: "W",
 };
 
-export default function CardView({ card, onClick, selected, small, faceDown }: Props) {
+export default function CardView({ card, onClick, selected, highlighted, small, faceDown }: Props) {
   const size = small
     ? { width: 36, height: 52, fontSize: 13, radius: 5 }
     : { width: 52, height: 74, fontSize: 18, radius: 7 };
@@ -57,6 +58,8 @@ export default function CardView({ card, onClick, selected, small, faceDown }: P
         background: BG[card.color] ?? "#26215C",
         border: selected
           ? "2px solid #FAC775"
+          : highlighted
+          ? "2px solid #9FE1CB"
           : "2px solid rgba(255,255,255,0.3)",
         display: "flex",
         alignItems: "center",
@@ -66,7 +69,7 @@ export default function CardView({ card, onClick, selected, small, faceDown }: P
         fontWeight: 500,
         cursor: onClick ? "pointer" : "default",
         flexShrink: 0,
-        transform: selected ? "translateY(-8px)" : "none",
+        transform: selected ? "translateY(-8px)" : highlighted ? "translateY(-4px)" : "none",
         transition: "transform 0.15s ease",
         userSelect: "none",
       }}

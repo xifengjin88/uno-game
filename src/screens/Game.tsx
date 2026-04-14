@@ -26,6 +26,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
 
   const playCardMutation = useMutation(api.games.playCard);
   const drawCardMutation = useMutation(api.games.drawCard);
+  const passTurnMutation = useMutation(api.games.passTurn);
 
   if (!game || !allPlayers || !me) {
     return (
@@ -41,18 +42,39 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
   }
 
   const isMyTurn = game.currentPlayerId === playerId;
+  const hasDrawn = !!game.drawnCard && isMyTurn;
   const opponents = allPlayers
     .filter((p) => p._id !== playerId)
     .sort((a, b) => a.order - b.order);
   const currentPlayer = allPlayers.find((p) => p._id === game.currentPlayerId);
 
+  // Find the drawn card index in hand for highlighting (last match to handle duplicates)
+  const drawnCardIndex = hasDrawn
+    ? (() => {
+        const idx = [...me.hand].reverse().findIndex(
+          (c) => c.color === game.drawnCard!.color && c.value === game.drawnCard!.value
+        );
+        return idx === -1 ? -1 : me.hand.length - 1 - idx;
+      })()
+    : -1;
+
   function initials(name: string) {
     return name.slice(0, 2).toUpperCase();
   }
 
-  async function handlePlayCard(index: number) {
+  function turnIndicatorText() {
+    if (!isMyTurn) return `waiting for ${currentPlayer?.nickname}…`;
+    if (hasDrawn) return "play the drawn card or pass your turn";
+    if (game.drawStack > 0) return `draw +${game.drawStack} or counter with a matching card`;
+    return "your turn — play a card or draw";
+  }
+
+  async function handleCardClick(index: number) {
     if (!isMyTurn) return;
-    const card = me!.hand[index];
+    // When in drawn state, only the drawn card is interactive
+    if (hasDrawn && index !== drawnCardIndex) return;
+
+    const card = me.hand[index];
 
     if (card.color === "wild") {
       setSelectedIndex(index);
@@ -60,6 +82,14 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       return;
     }
 
+    if (selectedIndex === index) {
+      await handlePlayCard(index);
+    } else {
+      setSelectedIndex(index);
+    }
+  }
+
+  async function handlePlayCard(index: number) {
     setError("");
     try {
       await playCardMutation({
@@ -91,10 +121,23 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
   }
 
   async function handleDraw() {
-    if (!isMyTurn) return;
+    if (!isMyTurn || hasDrawn) return;
     setError("");
     try {
       await drawCardMutation({
+        gameId: gameId as Id<"games">,
+        playerId: playerId as Id<"players">,
+      });
+      setSelectedIndex(null);
+    } catch (e) {
+      setError(e instanceof ConvexError ? String(e.data) : "Something went wrong");
+    }
+  }
+
+  async function handlePass() {
+    setError("");
+    try {
+      await passTurnMutation({
         gameId: gameId as Id<"games">,
         playerId: playerId as Id<"players">,
       });
@@ -169,7 +212,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
           <CardView
             card={{ color: "wild", value: "wild" }}
             faceDown
-            onClick={isMyTurn ? handleDraw : undefined}
+            onClick={isMyTurn && !hasDrawn ? handleDraw : undefined}
           />
           <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 3 }}>
             {game.deck.length} left
@@ -191,11 +234,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
         fontWeight: isMyTurn ? 500 : 400,
         marginBottom: 16, minHeight: 20,
       }}>
-        {isMyTurn
-          ? game.drawStack > 0
-            ? `you must draw +${game.drawStack} or counter`
-            : "your turn — play a card or draw"
-          : `waiting for ${currentPlayer?.nickname}…`}
+        {turnIndicatorText()}
       </div>
 
       {/* Error */}
@@ -243,14 +282,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
               card={card}
               small
               selected={selectedIndex === i}
-              onClick={() => {
-                if (!isMyTurn) return;
-                if (selectedIndex === i) {
-                  handlePlayCard(i);
-                } else {
-                  setSelectedIndex(i);
-                }
-              }}
+              highlighted={i === drawnCardIndex && hasDrawn}
+              onClick={() => handleCardClick(i)}
             />
           ))}
         </div>
@@ -263,6 +296,21 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
           onClick={() => handlePlayCard(selectedIndex)}
         >
           Play {me.hand[selectedIndex]?.value} card
+        </button>
+      )}
+
+      {/* Pass button — only shown after drawing a playable card */}
+      {hasDrawn && selectedIndex === null && (
+        <button
+          style={{
+            marginTop: 12, width: "100%",
+            background: "transparent",
+            color: "var(--color-text-secondary)",
+            border: "0.5px solid var(--color-border-secondary)",
+          }}
+          onClick={handlePass}
+        >
+          Pass turn
         </button>
       )}
 

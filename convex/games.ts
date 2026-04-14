@@ -103,6 +103,13 @@ export const playCard = mutation({
     const card = player.hand[cardIndex];
     if (!card) throw new ConvexError("Card not found");
 
+    // If player already drew this turn, they may only play the drawn card
+    if (game.drawnCard) {
+      const isDrawnCard =
+        card.color === game.drawnCard.color && card.value === game.drawnCard.value;
+      if (!isDrawnCard) throw new ConvexError("You can only play the card you just drew");
+    }
+
     const topCard = game.topCard!;
     if (!isValidPlay(card, topCard, game.drawStack)) {
       throw new ConvexError("Invalid play — card doesn't match color or value");
@@ -118,6 +125,7 @@ export const playCard = mutation({
         status: "finished",
         winnerId: playerId,
         topCard: card,
+        drawnCard: undefined,
       });
       return;
     }
@@ -160,6 +168,7 @@ export const playCard = mutation({
       topCard: playedCard,
       direction: newDirection,
       drawStack: newDrawStack,
+      drawnCard: undefined,
       currentPlayerId: nextPlayer._id,
     });
   },
@@ -175,25 +184,78 @@ export const drawCard = mutation({
     if (!game) throw new ConvexError("Game not found");
     if (game.status !== "playing") throw new ConvexError("Game is not in progress");
     if (game.currentPlayerId !== playerId) throw new ConvexError("Not your turn");
+    if (game.drawnCard) throw new ConvexError("You have already drawn this turn");
 
     const player = await ctx.db.get(playerId);
     if (!player) throw new ConvexError("Player not found");
 
     let deck = [...game.deck];
+    if (deck.length === 0) deck = shuffle([...deck]);
 
-    // Reshuffle if deck is empty
-    if (deck.length === 0) {
-      deck = shuffle([...deck]);
+    // Draw stack penalty — draw all stacked cards, turn always ends immediately
+    if (game.drawStack > 0) {
+      const drawn = deck.splice(-game.drawStack);
+      await ctx.db.patch(playerId, { hand: [...player.hand, ...drawn] });
+
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect();
+      const sorted = players.sort((a, b) => a.order - b.order);
+      const currentOrder = sorted.find((p) => p._id === playerId)!.order;
+      const nextOrder = nextPlayerIndex(currentOrder, sorted.length, game.direction);
+      const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
+
+      await ctx.db.patch(gameId, {
+        deck,
+        drawStack: 0,
+        drawnCard: undefined,
+        currentPlayerId: nextPlayer._id,
+      });
+      return;
     }
 
-    // Draw stack penalty or 1 card
-    const cardsToDraw = game.drawStack > 0 ? game.drawStack : 1;
-    const drawn = deck.splice(-cardsToDraw);
-    const newHand = [...player.hand, ...drawn];
+    // Normal draw — 1 card
+    const drawn = deck.splice(-1)[0];
+    await ctx.db.patch(playerId, { hand: [...player.hand, drawn] });
 
-    await ctx.db.patch(playerId, { hand: newHand });
+    const playable = isValidPlay(drawn, game.topCard!, 0);
 
-    // Advance turn
+    if (playable) {
+      // Player may play it immediately or pass — turn does NOT advance yet
+      await ctx.db.patch(gameId, { deck, drawnCard: drawn });
+    } else {
+      // Not playable — advance turn immediately
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect();
+      const sorted = players.sort((a, b) => a.order - b.order);
+      const currentOrder = sorted.find((p) => p._id === playerId)!.order;
+      const nextOrder = nextPlayerIndex(currentOrder, sorted.length, game.direction);
+      const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
+
+      await ctx.db.patch(gameId, {
+        deck,
+        drawnCard: undefined,
+        currentPlayerId: nextPlayer._id,
+      });
+    }
+  },
+});
+
+export const passTurn = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+  },
+  handler: async (ctx, { gameId, playerId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new ConvexError("Game not found");
+    if (game.status !== "playing") throw new ConvexError("Game is not in progress");
+    if (game.currentPlayerId !== playerId) throw new ConvexError("Not your turn");
+    if (!game.drawnCard) throw new ConvexError("Nothing to pass — you haven't drawn yet");
+
     const players = await ctx.db
       .query("players")
       .withIndex("by_game", (q) => q.eq("gameId", gameId))
@@ -204,8 +266,7 @@ export const drawCard = mutation({
     const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
 
     await ctx.db.patch(gameId, {
-      deck,
-      drawStack: 0,
+      drawnCard: undefined,
       currentPlayerId: nextPlayer._id,
     });
   },

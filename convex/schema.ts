@@ -27,6 +27,7 @@ export default defineSchema({
     drawStack: v.number(),
     topCard: v.optional(card),
     deck: v.array(card),
+    drawnCard: v.optional(card),
     winnerId: v.optional(v.id("players")),
   }).index("by_code", ["code"]),
 
