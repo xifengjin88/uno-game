@@ -1,7 +1,8 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import { generateRoomCode } from "./lib/utils";
-import { buildDeck, dealHands } from "./lib/deck";
+import { buildDeck, dealHands, shuffle } from "./lib/deck";
+import { isValidPlay, nextPlayerIndex } from "./lib/rules";
 
 export const createGame = mutation({
   args: { nickname: v.string() },
@@ -37,19 +38,19 @@ export const joinGame = mutation({
       .withIndex("by_code", (q) => q.eq("code", code.toUpperCase()))
       .first();
 
-    if (!game) throw new Error("Room not found");
-    if (game.status !== "waiting") throw new Error("Game already started");
+    if (!game) throw new ConvexError("Room not found");
+    if (game.status !== "waiting") throw new ConvexError("Game already started");
 
     const players = await ctx.db
       .query("players")
       .withIndex("by_game", (q) => q.eq("gameId", game._id))
       .collect();
 
-    if (players.length >= 6) throw new Error("Room is full");
+    if (players.length >= 6) throw new ConvexError("Room is full");
 
     const nicknamesTaken = players.map((p) => p.nickname.toLowerCase());
     if (nicknamesTaken.includes(nickname.toLowerCase()))
-      throw new Error("Nickname already taken in this room");
+      throw new ConvexError("Nickname already taken in this room");
 
     const playerId = await ctx.db.insert("players", {
       gameId: game._id,
@@ -74,6 +75,142 @@ export const getByCode = query({
   },
 });
 
+export const getGame = query({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    return ctx.db.get(gameId);
+  },
+});
+
+export const playCard = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    cardIndex: v.number(),
+    chosenColor: v.optional(
+      v.union(v.literal("red"), v.literal("blue"), v.literal("green"), v.literal("yellow"))
+    ),
+  },
+  handler: async (ctx, { gameId, playerId, cardIndex, chosenColor }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new ConvexError("Game not found");
+    if (game.status !== "playing") throw new ConvexError("Game is not in progress");
+    if (game.currentPlayerId !== playerId) throw new ConvexError("Not your turn");
+
+    const player = await ctx.db.get(playerId);
+    if (!player) throw new ConvexError("Player not found");
+
+    const card = player.hand[cardIndex];
+    if (!card) throw new ConvexError("Card not found");
+
+    const topCard = game.topCard!;
+    if (!isValidPlay(card, topCard, game.drawStack)) {
+      throw new ConvexError("Invalid play — card doesn't match color or value");
+    }
+
+    // Remove card from hand
+    const newHand = player.hand.filter((_, i) => i !== cardIndex);
+    await ctx.db.patch(playerId, { hand: newHand });
+
+    // Check win
+    if (newHand.length === 0) {
+      await ctx.db.patch(gameId, {
+        status: "finished",
+        winnerId: playerId,
+        topCard: card,
+      });
+      return;
+    }
+
+    // Apply wild color choice
+    const playedCard = card.color === "wild" && chosenColor
+      ? { ...card, color: chosenColor }
+      : card;
+
+    // Get all players for turn logic
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+    const sorted = players.sort((a, b) => a.order - b.order);
+
+    let newDirection = game.direction;
+    let newDrawStack = game.drawStack;
+    let skipNext = false;
+
+    // Apply card effects
+    if (card.value === "reverse") {
+      newDirection = (game.direction * -1) as 1 | -1;
+    } else if (card.value === "skip") {
+      skipNext = true;
+    } else if (card.value === "+2") {
+      newDrawStack = game.drawStack + 2;
+      skipNext = true;
+    } else if (card.value === "+4") {
+      newDrawStack = game.drawStack + 4;
+      skipNext = true;
+    }
+
+    // Advance turn
+    const currentOrder = sorted.find((p) => p._id === playerId)!.order;
+    const nextOrder = nextPlayerIndex(currentOrder, sorted.length, newDirection, skipNext);
+    const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
+
+    await ctx.db.patch(gameId, {
+      topCard: playedCard,
+      direction: newDirection,
+      drawStack: newDrawStack,
+      currentPlayerId: nextPlayer._id,
+    });
+  },
+});
+
+export const drawCard = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+  },
+  handler: async (ctx, { gameId, playerId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new ConvexError("Game not found");
+    if (game.status !== "playing") throw new ConvexError("Game is not in progress");
+    if (game.currentPlayerId !== playerId) throw new ConvexError("Not your turn");
+
+    const player = await ctx.db.get(playerId);
+    if (!player) throw new ConvexError("Player not found");
+
+    let deck = [...game.deck];
+
+    // Reshuffle if deck is empty
+    if (deck.length === 0) {
+      deck = shuffle([...deck]);
+    }
+
+    // Draw stack penalty or 1 card
+    const cardsToDraw = game.drawStack > 0 ? game.drawStack : 1;
+    const drawn = deck.splice(-cardsToDraw);
+    const newHand = [...player.hand, ...drawn];
+
+    await ctx.db.patch(playerId, { hand: newHand });
+
+    // Advance turn
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+    const sorted = players.sort((a, b) => a.order - b.order);
+    const currentOrder = sorted.find((p) => p._id === playerId)!.order;
+    const nextOrder = nextPlayerIndex(currentOrder, sorted.length, game.direction);
+    const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
+
+    await ctx.db.patch(gameId, {
+      deck,
+      drawStack: 0,
+      currentPlayerId: nextPlayer._id,
+    });
+  },
+});
+
 export const listPlayers = query({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {
@@ -88,18 +225,18 @@ export const startGame = mutation({
   args: { gameId: v.id("games"), playerId: v.id("players") },
   handler: async (ctx, { gameId, playerId }) => {
     const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("Game not found");
-    if (game.status !== "waiting") throw new Error("Game already started");
+    if (!game) throw new ConvexError("Game not found");
+    if (game.status !== "waiting") throw new ConvexError("Game already started");
 
     const player = await ctx.db.get(playerId);
-    if (!player?.isHost) throw new Error("Only the host can start the game");
+    if (!player?.isHost) throw new ConvexError("Only the host can start the game");
 
     const players = await ctx.db
       .query("players")
       .withIndex("by_game", (q) => q.eq("gameId", gameId))
       .collect();
 
-    if (players.length < 2) throw new Error("Need at least 2 players to start");
+    if (players.length < 2) throw new ConvexError("Need at least 2 players to start");
 
     const sorted = players.sort((a, b) => a.order - b.order);
     const { hands, remaining } = dealHands(game.deck, sorted.length);

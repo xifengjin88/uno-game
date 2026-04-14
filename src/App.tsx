@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { loadPlayer, clearPlayer } from "./lib/storage";
 import Home from "./screens/Home";
 import Lobby from "./screens/Lobby";
+import Game from "./screens/Game";
 
 type Session = { playerId: string; gameId: string; code: string };
-type Screen = "home" | "lobby" | "game";
+type Screen = "home" | "lobby" | "game" | "end";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -29,13 +30,7 @@ export default function App() {
     setScreen("home");
   }
 
-  function handleGameStarted() {
-    setScreen("game");
-  }
-
-  if (screen === "home" || !session) {
-    return <Home onJoined={handleJoined} />;
-  }
+  if (screen === "home" || !session) return <Home onJoined={handleJoined} />;
 
   if (screen === "lobby") {
     return (
@@ -43,17 +38,27 @@ export default function App() {
         gameId={session.gameId}
         playerId={session.playerId}
         code={session.code}
-        onGameStarted={handleGameStarted}
+        onGameStarted={() => setScreen("game")}
         onLeft={handleLeft}
       />
     );
   }
 
-  // Placeholder — replaced in Step 4 with <Game />
+  if (screen === "game") {
+    return (
+      <Game
+        gameId={session.gameId}
+        playerId={session.playerId}
+        onGameOver={() => setScreen("end")}
+      />
+    );
+  }
+
+  // Placeholder — replaced in Step 7 with <End />
   return (
-    <div style={{ padding: 20 }}>
-      <p>Game started!</p>
-      <button onClick={handleLeft}>Leave</button>
+    <div style={{ padding: 40, textAlign: "center" }}>
+      <h2 style={{ marginBottom: 16 }}>Game over!</h2>
+      <button onClick={handleLeft}>Back to home</button>
     </div>
   );
 }
