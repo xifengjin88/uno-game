@@ -2,8 +2,8 @@ import { useQuery, useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { useState } from "react";
-import CardView from "../components/CardView";
+import React, { useState } from "react";
+import { UnoCard } from "../components/UnoCards";
 
 type Props = {
   gameId: string;
@@ -18,6 +18,7 @@ const WILD_COLORS = ["red", "blue", "green", "yellow"] as const;
 export default function Game({ gameId, playerId, onGameOver }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [pendingJumpIn, setPendingJumpIn] = useState(false);
   const [error, setError] = useState("");
 
   const game = useQuery(api.games.getGame, { gameId: gameId as Id<"games"> });
@@ -27,6 +28,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
   const playCardMutation = useMutation(api.games.playCard);
   const drawCardMutation = useMutation(api.games.drawCard);
   const passTurnMutation = useMutation(api.games.passTurn);
+  const jumpInMutation = useMutation(api.games.jumpIn);
 
   if (!game || !allPlayers || !me) {
     return (
@@ -48,6 +50,33 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
     .sort((a, b) => a.order - b.order);
   const currentPlayer = allPlayers.find((p) => p._id === game.currentPlayerId);
 
+  // Cards eligible for jump-in — exact match to top card, not your turn, no draw stack
+  const jumpInIndices: number[] =
+    !isMyTurn && game.drawStack === 0 && game.topCard
+      ? me.hand.reduce<number[]>((acc, card, i) => {
+          if (card.color === game.topCard!.color && card.value === game.topCard!.value) {
+            acc.push(i);
+          }
+          return acc;
+        }, [])
+      : [];
+
+  const canJumpIn = jumpInIndices.length > 0;
+
+  // Cards that can counter an active draw stack
+  const counterIndices: number[] =
+    isMyTurn && game.drawStack > 0 && game.topCard
+      ? me.hand.reduce<number[]>((acc, card, i) => {
+          if (
+            (game.topCard!.value === "+2" && (card.value === "+2" || card.value === "+4")) ||
+            (game.topCard!.value === "+4" && card.value === "+4")
+          ) {
+            acc.push(i);
+          }
+          return acc;
+        }, [])
+      : [];
+
   // Find the drawn card index in hand for highlighting (last match to handle duplicates)
   const drawnCardIndex = hasDrawn
     ? (() => {
@@ -57,6 +86,23 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
         return idx === -1 ? -1 : me.hand.length - 1 - idx;
       })()
     : -1;
+
+  function toUnoProps(card: { color: string; value: string }) {
+    if (card.value === "+4")      return { color: "wild"       as const, type: "wild4"   as const };
+    if (card.value === "wild")    return { color: "wild"       as const, type: "wild"    as const };
+    if (card.value === "skip")    return { color: card.color   as any,   type: "skip"    as const };
+    if (card.value === "reverse") return { color: card.color   as any,   type: "reverse" as const };
+    if (card.value === "+2")      return { color: card.color   as any,   type: "draw2"   as const };
+    return { color: card.color as any, type: "number" as const, value: parseInt(card.value) };
+  }
+
+  function cardStyle(i: number): React.CSSProperties {
+    if (selectedIndex === i)
+      return { outline: "2.5px solid #FAC775", outlineOffset: 3, transform: "translateY(-10px)", transition: "transform 0.15s ease" };
+    if ((i === drawnCardIndex && hasDrawn) || jumpInIndices.includes(i) || counterIndices.includes(i))
+      return { outline: "2.5px solid #9FE1CB", outlineOffset: 3, transform: "translateY(-5px)", transition: "transform 0.15s ease" };
+    return { transition: "transform 0.15s ease" };
+  }
 
   function initials(name: string) {
     return name.slice(0, 2).toUpperCase();
@@ -108,15 +154,26 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
     setShowColorPicker(false);
     setError("");
     try {
-      await playCardMutation({
-        gameId: gameId as Id<"games">,
-        playerId: playerId as Id<"players">,
-        cardIndex: selectedIndex,
-        chosenColor: color,
-      });
+      if (pendingJumpIn) {
+        await jumpInMutation({
+          gameId: gameId as Id<"games">,
+          playerId: playerId as Id<"players">,
+          cardIndex: selectedIndex,
+          chosenColor: color,
+        });
+      } else {
+        await playCardMutation({
+          gameId: gameId as Id<"games">,
+          playerId: playerId as Id<"players">,
+          cardIndex: selectedIndex,
+          chosenColor: color,
+        });
+      }
       setSelectedIndex(null);
+      setPendingJumpIn(false);
     } catch (e) {
       setError(e instanceof ConvexError ? String(e.data) : "Something went wrong");
+      setPendingJumpIn(false);
     }
   }
 
@@ -127,6 +184,29 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       await drawCardMutation({
         gameId: gameId as Id<"games">,
         playerId: playerId as Id<"players">,
+      });
+      setSelectedIndex(null);
+    } catch (e) {
+      setError(e instanceof ConvexError ? String(e.data) : "Something went wrong");
+    }
+  }
+
+  async function handleJumpIn(index: number) {
+    setError("");
+    const card = me.hand[index];
+
+    if (card.color === "wild") {
+      setSelectedIndex(index);
+      setPendingJumpIn(true);
+      setShowColorPicker(true);
+      return;
+    }
+
+    try {
+      await jumpInMutation({
+        gameId: gameId as Id<"games">,
+        playerId: playerId as Id<"players">,
+        cardIndex: index,
       });
       setSelectedIndex(null);
     } catch (e) {
@@ -160,8 +240,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
         </div>
         {game.drawStack > 0 && (
           <div style={{
-            fontSize: 12, background: "#FAECE7", color: "#993C1D",
-            padding: "3px 10px", borderRadius: 20, border: "0.5px solid #F0997B",
+            fontSize: 12, background: "rgba(232,25,44,0.15)", color: "#ff8a8a",
+            padding: "3px 10px", borderRadius: 20, border: "0.5px solid rgba(232,25,44,0.4)",
           }}>
             draw stack: +{game.drawStack}
           </div>
@@ -171,7 +251,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       {/* Opponents */}
       <div style={{
         display: "flex", justifyContent: "space-around",
-        background: "#0F6E56", borderRadius: 12,
+        background: "rgba(26,168,51,0.12)", borderRadius: 12,
+        border: "0.5px solid rgba(26,168,51,0.2)",
         padding: "14px 10px", marginBottom: 16,
       }}>
         {opponents.map((opp) => {
@@ -190,8 +271,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
               }}>
                 {initials(opp.nickname)}
               </div>
-              <div style={{ fontSize: 10, color: "#9FE1CB" }}>{opp.nickname}</div>
-              <div style={{ fontSize: 11, color: "#E1F5EE", fontWeight: 500 }}>
+              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{opp.nickname}</div>
+              <div style={{ fontSize: 11, color: "var(--text-primary)", fontWeight: 500 }}>
                 {opp.hand.length} cards
                 {!opp.isConnected && " 💤"}
               </div>
@@ -209,9 +290,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
           <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>
             draw pile
           </div>
-          <CardView
-            card={{ color: "wild", value: "wild" }}
-            faceDown
+          <UnoCard
+            color="wild" type="wild" faceDown size="md"
             onClick={isMyTurn && !hasDrawn ? handleDraw : undefined}
           />
           <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 3 }}>
@@ -223,14 +303,14 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
           <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>
             discard
           </div>
-          {game.topCard && <CardView card={game.topCard} />}
+          {game.topCard && <UnoCard {...toUnoProps(game.topCard)} size="md" />}
         </div>
       </div>
 
       {/* Turn indicator */}
       <div style={{
         textAlign: "center", fontSize: 12,
-        color: isMyTurn ? "#3B6D11" : "var(--color-text-secondary)",
+        color: isMyTurn ? "var(--uno-green)" : "var(--color-text-secondary)",
         fontWeight: isMyTurn ? 500 : 400,
         marginBottom: 16, minHeight: 20,
       }}>
@@ -270,6 +350,18 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
         </div>
       )}
 
+      {/* Jump-in banner */}
+      {canJumpIn && (
+        <div style={{
+          fontSize: 12, background: "rgba(26,168,51,0.12)", color: "#6ee07e",
+          padding: "6px 12px", borderRadius: "var(--border-radius-md)",
+          border: "0.5px solid rgba(26,168,51,0.35)", textAlign: "center",
+          marginBottom: 10,
+        }}>
+          you can jump in — tap the highlighted card
+        </div>
+      )}
+
       {/* Your hand */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 8 }}>
@@ -277,13 +369,18 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {me.hand.map((card, i) => (
-            <CardView
+            <UnoCard
               key={i}
-              card={card}
-              small
-              selected={selectedIndex === i}
-              highlighted={i === drawnCardIndex && hasDrawn}
-              onClick={() => handleCardClick(i)}
+              {...toUnoProps(card)}
+              size="sm"
+              style={cardStyle(i)}
+              onClick={() => {
+                if (jumpInIndices.includes(i)) {
+                  handleJumpIn(i);
+                } else {
+                  handleCardClick(i);
+                }
+              }}
             />
           ))}
         </div>
@@ -291,10 +388,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
 
       {/* Play selected button */}
       {selectedIndex !== null && !showColorPicker && (
-        <button
-          style={{ marginTop: 12, width: "100%" }}
-          onClick={() => handlePlayCard(selectedIndex)}
-        >
+        <button style={{ marginTop: 12, width: "100%" }} onClick={() => handlePlayCard(selectedIndex)}>
           Play {me.hand[selectedIndex]?.value} card
         </button>
       )}
@@ -302,12 +396,8 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       {/* Pass button — only shown after drawing a playable card */}
       {hasDrawn && selectedIndex === null && (
         <button
-          style={{
-            marginTop: 12, width: "100%",
-            background: "transparent",
-            color: "var(--color-text-secondary)",
-            border: "0.5px solid var(--color-border-secondary)",
-          }}
+          className="secondary"
+          style={{ marginTop: 12, width: "100%" }}
           onClick={handlePass}
         >
           Pass turn
@@ -316,12 +406,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
 
       {/* UNO button */}
       {me.hand.length === 2 && isMyTurn && (
-        <button style={{
-          marginTop: 8, width: "100%",
-          background: "#D85A30", color: "#fff", border: "none",
-          borderRadius: "var(--border-radius-md)", padding: "10px",
-          fontSize: 14, fontWeight: 500, cursor: "pointer",
-        }}>
+        <button className="uno" style={{ marginTop: 8, width: "100%" }}>
           UNO!
         </button>
       )}

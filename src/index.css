@@ -1,111 +1,184 @@
+/* ============================================================
+   UNO — Global theme
+   ============================================================ */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* UNO brand palette */
+  --uno-red:          #E8192C;
+  --uno-red-dark:     #a0000f;
+  --uno-yellow:       #FFD700;
+  --uno-yellow-dark:  #b89700;
+  --uno-green:        #1AA833;
+  --uno-green-dark:   #0d6e20;
+  --uno-blue:         #0A57BE;
+  --uno-blue-dark:    #063a80;
+  --uno-black:        #1a1a1a;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* App surfaces */
+  --app-bg:           #0a0a1a;
+  --app-bg-mid:       #1a0828;
+  --app-bg-alt:       #0a160a;
+  --app-surface:      rgba(255, 255, 255, 0.05);
+  --app-border:       rgba(255, 255, 255, 0.08);
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  /* Text */
+  --text-primary:     #ffffff;
+  --text-muted:       rgba(255, 255, 255, 0.45);
+  --text-faint:       rgba(255, 255, 255, 0.2);
+
+  /* Aliases used in screen inline styles */
+  --color-text-primary:     var(--text-primary);
+  --color-text-secondary:   var(--text-muted);
+  --color-text-danger:      #ff5a5a;
+  --color-border-secondary: rgba(255, 255, 255, 0.12);
+  --color-border-tertiary:  rgba(255, 255, 255, 0.07);
+  --color-background-primary:   rgba(255, 255, 255, 0.05);
+  --color-background-secondary: rgba(255, 255, 255, 0.03);
+  --border-radius-md:  8px;
+  --border-radius-lg:  14px;
+
+  /* Typography */
+  --font-display: 'Arial Black', Impact, sans-serif;
+  --font-body:    system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  font: 16px/150% var(--font-body);
+  letter-spacing: 0.15px;
+  color: var(--text-primary);
+  background: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+/* ---- Page background ---- */
+body {
+  margin: 0;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a0828 50%, #0a160a 100%);
+  min-height: 100vh;
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 480px;
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
-body {
-  margin: 0;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
+/* ---- Typography ---- */
+h1, h2, .title-uno {
+  font-family: var(--font-display);
+  font-weight: 900;
+  color: var(--uno-yellow);
+  text-shadow: 2px 2px 0 var(--uno-black);
+  letter-spacing: -1px;
   margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+h1 { font-size: 48px; }
+h2 { font-size: 24px; }
+
+p { margin: 0; }
+
+.section-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
-code {
+/* ---- Inputs ---- */
+input {
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--border-radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+input::placeholder {
+  color: var(--text-faint);
+}
+
+input:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* ---- Buttons ---- */
+button {
+  box-sizing: border-box;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: var(--border-radius-md);
+  padding: 10px 18px;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s ease, transform 0.1s ease, background 0.15s ease;
+
+  /* default = primary */
+  background: var(--uno-red);
+  color: #ffffff;
+}
+
+button:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Secondary variant — applied via inline style overrides in screens */
+button.secondary {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+/* UNO button */
+button.uno {
+  background: var(--uno-red);
+  color: #fff;
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+/* ---- Panel / surface ---- */
+.panel {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  padding: 24px 20px;
+}
+
+/* ---- Player color indicators ---- */
+.player-red    { border-left: 3px solid var(--uno-red);    }
+.player-yellow { border-left: 3px solid var(--uno-yellow); }
+.player-green  { border-left: 3px solid var(--uno-green);  }
+.player-blue   { border-left: 3px solid var(--uno-blue);   }
+
+.active-turn {
+  box-shadow: 0 0 0 2px var(--uno-yellow);
 }

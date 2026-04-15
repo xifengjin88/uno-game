@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { generateRoomCode } from "./lib/utils";
 import { buildDeck, dealHands, shuffle } from "./lib/deck";
-import { isValidPlay, nextPlayerIndex } from "./lib/rules";
+import { isValidPlay, isJumpIn, nextPlayerIndex } from "./lib/rules";
 
 export const createGame = mutation({
   args: { nickname: v.string() },
@@ -241,6 +241,82 @@ export const drawCard = mutation({
         currentPlayerId: nextPlayer._id,
       });
     }
+  },
+});
+
+export const jumpIn = mutation({
+  args: {
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    cardIndex: v.number(),
+    chosenColor: v.optional(
+      v.union(v.literal("red"), v.literal("blue"), v.literal("green"), v.literal("yellow"))
+    ),
+  },
+  handler: async (ctx, { gameId, playerId, cardIndex, chosenColor }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new ConvexError("Game not found");
+    if (game.status !== "playing") throw new ConvexError("Game is not in progress");
+    if (game.currentPlayerId === playerId) throw new ConvexError("It's already your turn");
+    if (!game.topCard) throw new ConvexError("No top card");
+    if (game.drawStack > 0) throw new ConvexError("Cannot jump in during an active draw stack");
+
+    const player = await ctx.db.get(playerId);
+    if (!player) throw new ConvexError("Player not found");
+
+    const card = player.hand[cardIndex];
+    if (!card) throw new ConvexError("Card not found");
+
+    if (!isJumpIn(card, game.topCard)) {
+      throw new ConvexError("Card must exactly match the top card to jump in");
+    }
+
+    const newHand = player.hand.filter((_, i) => i !== cardIndex);
+    await ctx.db.patch(playerId, { hand: newHand });
+
+    if (newHand.length === 0) {
+      await ctx.db.patch(gameId, {
+        status: "finished",
+        winnerId: playerId,
+        topCard: card,
+        drawnCard: undefined,
+      });
+      return;
+    }
+
+    const playedCard =
+      card.color === "wild" && chosenColor ? { ...card, color: chosenColor } : card;
+
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+    const sorted = players.sort((a, b) => a.order - b.order);
+
+    let newDirection = game.direction;
+    let newDrawStack = 0;
+    let skipNext = false;
+
+    if (card.value === "reverse") {
+      newDirection = (game.direction * -1) as 1 | -1;
+    } else if (card.value === "skip") {
+      skipNext = true;
+    } else if (card.value === "+2") {
+      newDrawStack = 2;
+      skipNext = true;
+    }
+
+    const currentOrder = sorted.find((p) => p._id === playerId)!.order;
+    const nextOrder = nextPlayerIndex(currentOrder, sorted.length, newDirection, skipNext);
+    const nextPlayer = sorted.find((p) => p.order === nextOrder)!;
+
+    await ctx.db.patch(gameId, {
+      topCard: playedCard,
+      direction: newDirection,
+      drawStack: newDrawStack,
+      drawnCard: undefined,
+      currentPlayerId: nextPlayer._id,
+    });
   },
 });
 
