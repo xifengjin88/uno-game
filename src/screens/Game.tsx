@@ -2,8 +2,9 @@ import { useQuery, useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import React, { useState } from "react";
-import { UnoCard } from "../components/UnoCards";
+import { useState } from "react";
+import type { CSSProperties } from "react";
+import { UnoCard, CardStack } from "../components/UnoCards";
 
 type Props = {
   gameId: string;
@@ -87,16 +88,19 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       })()
     : -1;
 
+  type UnoColor = "red" | "blue" | "green" | "yellow" | "wild";
+
   function toUnoProps(card: { color: string; value: string }) {
-    if (card.value === "+4")      return { color: "wild"       as const, type: "wild4"   as const };
-    if (card.value === "wild")    return { color: "wild"       as const, type: "wild"    as const };
-    if (card.value === "skip")    return { color: card.color   as any,   type: "skip"    as const };
-    if (card.value === "reverse") return { color: card.color   as any,   type: "reverse" as const };
-    if (card.value === "+2")      return { color: card.color   as any,   type: "draw2"   as const };
-    return { color: card.color as any, type: "number" as const, value: parseInt(card.value) };
+    const color = card.color as UnoColor;
+    if (card.value === "+4")      return { color: "wild" as const, type: "wild4"   as const };
+    if (card.value === "wild")    return { color: "wild" as const, type: "wild"    as const };
+    if (card.value === "skip")    return { color,                  type: "skip"    as const };
+    if (card.value === "reverse") return { color,                  type: "reverse" as const };
+    if (card.value === "+2")      return { color,                  type: "draw2"   as const };
+    return { color, type: "number" as const, value: parseInt(card.value) };
   }
 
-  function cardStyle(i: number): React.CSSProperties {
+  function cardStyle(i: number): CSSProperties {
     if (selectedIndex === i)
       return { outline: "2.5px solid #FAC775", outlineOffset: 3, transform: "translateY(-10px)", transition: "transform 0.15s ease" };
     if ((i === drawnCardIndex && hasDrawn) || jumpInIndices.includes(i) || counterIndices.includes(i))
@@ -111,7 +115,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
   function turnIndicatorText() {
     if (!isMyTurn) return `waiting for ${currentPlayer?.nickname}…`;
     if (hasDrawn) return "play the drawn card or pass your turn";
-    if (game.drawStack > 0) return `draw +${game.drawStack} or counter with a matching card`;
+    if (game!.drawStack > 0) return `draw +${game!.drawStack} or counter with a matching card`;
     return "your turn — play a card or draw";
   }
 
@@ -120,7 +124,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
     // When in drawn state, only the drawn card is interactive
     if (hasDrawn && index !== drawnCardIndex) return;
 
-    const card = me.hand[index];
+    const card = me!.hand[index];
 
     if (card.color === "wild") {
       setSelectedIndex(index);
@@ -193,7 +197,7 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
 
   async function handleJumpIn(index: number) {
     setError("");
-    const card = me.hand[index];
+    const card = me!.hand[index];
 
     if (card.color === "wild") {
       setSelectedIndex(index);
@@ -284,26 +288,54 @@ export default function Game({ gameId, playerId, onGameOver }: Props) {
       {/* Table center */}
       <div style={{
         display: "flex", alignItems: "center",
-        justifyContent: "center", gap: 24, marginBottom: 8,
+        justifyContent: "center", gap: 32, marginBottom: 8,
       }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-            draw pile
-          </div>
-          <UnoCard
-            color="wild" type="wild" faceDown size="md"
-            onClick={isMyTurn && !hasDrawn ? handleDraw : undefined}
-          />
-          <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 3 }}>
-            {game.deck.length} left
-          </div>
+        {/* Draw pile */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          {game.deck.length === 0 ? (
+            <div style={{
+              width: 65, height: 96, borderRadius: 8,
+              border: "2px dashed rgba(255,255,255,0.2)", boxSizing: "border-box",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <span style={{ color: "rgba(255,255,255,0.2)", fontSize: 11 }}>Empty</span>
+            </div>
+          ) : (
+            <CardStack
+              cards={game.deck.slice(-6).map((c) => ({ ...toUnoProps(c), faceDown: true }))}
+              spread="stack"
+              size="md"
+              onCardClick={isMyTurn && !hasDrawn ? () => handleDraw() : undefined}
+            />
+          )}
+          <span style={{
+            fontSize: 10, letterSpacing: 2, textTransform: "uppercase",
+            color: "rgba(255,255,255,0.3)",
+          }}>
+            Draw · {game.deck.length}
+          </span>
         </div>
 
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-            discard
-          </div>
-          {game.topCard && <UnoCard {...toUnoProps(game.topCard)} size="md" />}
+        {/* Discard pile */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          {!game.topCard ? (
+            <div style={{
+              width: 65, height: 96, borderRadius: 8,
+              border: "2px dashed rgba(255,255,255,0.2)", boxSizing: "border-box",
+            }} />
+          ) : (
+            <CardStack
+              cards={[toUnoProps(game.topCard)]}
+              spread="cascade"
+              size="md"
+            />
+          )}
+          <span style={{
+            fontSize: 10, letterSpacing: 2, textTransform: "uppercase",
+            color: "rgba(255,255,255,0.3)",
+          }}>
+            Discard
+          </span>
         </div>
       </div>
 
